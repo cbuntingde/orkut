@@ -1,5 +1,26 @@
 # orkut
 
+> **Two things to know before you run this.**
+>
+> **1. There is no admin interface.** There is no site-admin role anywhere in the schema
+> or the code, no admin panel, no way to administratively remove a user, suspend an
+> account, or globally review content. The one moderation queue at `/moderation` is
+> gated on being signed in and nothing more, so *any* registered account can read the
+> reports and act on them. That is a simplification for a demo, not a governance model.
+>
+> **2. This has not been properly security-checked.** The authentication code was written
+> with real measures in mind, and several are implemented and exercised: Argon2id, TOTP
+> two-factor, per-device sessions, CSRF protection, closed signup enumeration, and
+> uploads stored outside `public/`. But no independent party has reviewed any of it,
+> there has been no penetration test, and no formal audit has ever been carried out.
+> Treat the whole thing as unvetted. The four hosted mail transports (Resend, Postmark,
+> SES, SMTP) have likewise never been tested against a live provider API.
+>
+> **So run it locally.** Do not expose this to the public internet, and do not lift the
+> authentication or session code into anything real without an independent security
+> review first. The full list of what is implemented and what is merely believed to work
+> is under [Security](#security) and [Known differences](#known-differences).
+
 A working recreation of Orkut, the social network Google built in 2004 and closed in
 2014. Profiles, scrapbooks, testimonials, communities, crushes, fans, the pink.
 
