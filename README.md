@@ -12,9 +12,10 @@
 > UPDATE users SET is_admin = TRUE WHERE email = 'you@example.com';
 > ```
 >
-> `npm run seed` marks `ana@example.com` for local use. Until you run that
-> statement on a fresh deployment, nobody can reach the queue — which is the
-> correct way round, but it does mean a deployer has to know this exists.
+> `curl http://localhost:3000/api/seed` marks `ana@example.com` for local use.
+> Until you run that statement on a fresh deployment, nobody can reach the queue —
+> which is the correct way round, but it does mean a deployer has to know this
+> exists.
 >
 > **2. This has not been properly security-checked.** The authentication code was written
 > with real measures in mind, and several are implemented and exercised: Argon2id, TOTP
@@ -220,7 +221,7 @@ Also: [messages](docs/screenshots/messages.png) and [search](docs/screenshots/se
 | Framework | Next.js 16, App Router, React 19 |
 | Language | TypeScript, strict |
 | Database | PostgreSQL 16 in Docker |
-| ORM | Drizzle ORM, plain SQL migrations |
+| ORM | Drizzle ORM over a single `schema.sql` |
 | Password hashing | Argon2id via `@node-rs/argon2`, PBKDF2 fallback |
 | Two-factor | RFC 6238 TOTP, validated against the published test vectors |
 | Styling | Tailwind CSS 4 with CSS-variable themes |
@@ -234,7 +235,7 @@ Requires Node 24+ and Docker.
 ```bash
 git clone <this repo>
 cd orkut
-cp .env.example .env          # then set AUTH_SECRET to something long and random
+cp .env.example .env          # optional, but set AUTH_SECRET to enable two-factor
 npm install
 npm run dev                   # http://localhost:3000
 ```
@@ -288,7 +289,7 @@ does not duplicate anything.
 | Email | Password | Notes |
 |---|---|---|
 | `ana@example.com` | `orkut123` | also the demo administrator, so `/moderation` is reachable |
-| `rahul@example.com` | `orkut123` | moderator of the seeded community |
+| `rahul@example.com` | `orkut123` | owner of the cricket community, moderator of the other |
 | `priya@example.com` | `orkut123` | |
 | `carlos@example.com` | `orkut123` | |
 
@@ -303,9 +304,9 @@ refuses to run in production.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | Postgres connection string |
-| `AUTH_SECRET` | yes | Signs two-factor challenges and derives the TOTP key |
-| `APP_URL` | yes | Base URL used to build email verification links |
+| `DATABASE_URL` | no | Defaults to `postgres://orkut:orkut@localhost:5432/orkut` |
+| `AUTH_SECRET` | for two-factor | Signs two-factor challenges and derives the TOTP key. Without it, two-factor simply cannot be enabled and everything else still works |
+| `APP_URL` | no | Base URL used to build email verification links. Defaults to `http://localhost:3000` |
 | `MAIL_PROVIDER` | no | `console` (default), `resend`, `postmark`, `ses`, `smtp` |
 | `TOTP_ENCRYPTION_KEY` | no | 32 bytes as hex or base64. **Set this in production.** |
 | `REQUIRE_EMAIL_VERIFICATION` | no | Defaults to on |
@@ -340,7 +341,7 @@ value for `MAIL_PROVIDER` is an error rather than a silent fallback.
 ```bash
 npx tsc --noEmit     # types
 npm run lint         # eslint
-npm run verify       # TOTP + password hashing test suites
+npm run verify       # TOTP, password hashing, client address, mail transport
 ```
 
 `npm run verify` runs 125 checks with no test framework. The TOTP suite validates against
@@ -358,7 +359,7 @@ inference and the production guard that refuses the console transport.
 ```
 app/                 routes, one folder per page
   api/auth/          login, signup, resend, two-factor
-  uploads/[name]/    serves uploaded photos, with traversal and MIME checks
+  uploads/[name]/    serves uploaded photos; rejects traversal and non-image extensions
 components/          React components
 drizzle/schema.ts    the entire data model
 lib/                 domain logic, all testable without Next.js
