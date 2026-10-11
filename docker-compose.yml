@@ -10,7 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      # The whole schema, applied automatically on first start. There are no
+      # migration files to replay in order. Postgres runs this only when the
+      # volume is empty, so an existing checkout needs `docker compose down -v`
+      # once to rebuild from schema.sql.
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orkut -d orkut"]
       interval: 5s
