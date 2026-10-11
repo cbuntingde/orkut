@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { emailVerificationTokens, users } from "@/drizzle/schema";
 
@@ -68,15 +68,6 @@ export async function consumeVerificationToken(token: string): Promise<VerifyOut
   return { ok: true };
 }
 
-export async function isVerified(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ at: users.emailVerifiedAt })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  return !!rows[0]?.at;
-}
-
 /**
  * Whether signup should require a verified address before the account is usable.
  * On by default. Turning it off is explicitly a local-development choice: it
@@ -92,14 +83,4 @@ export function verificationRequired(): boolean {
 /** In development the console transport prints the link; surfacing it is safe there only. */
 export function canSurfaceVerificationLink(): boolean {
   return process.env.NODE_ENV !== "production";
-}
-
-export async function latestTokenIssuedAt(userId: string): Promise<Date | null> {
-  const rows = await db
-    .select({ at: emailVerificationTokens.createdAt })
-    .from(emailVerificationTokens)
-    .where(eq(emailVerificationTokens.userId, userId))
-    .orderBy(desc(emailVerificationTokens.createdAt))
-    .limit(1);
-  return rows[0]?.at ?? null;
 }

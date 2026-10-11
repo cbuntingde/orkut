@@ -34,10 +34,10 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
       <div className="grid gap-2 p-3 md:grid-cols-2">
         {rows.map(({ photo, comments }) => (
           <div key={photo.id} className="orkut-box relative overflow-hidden">
-            {isMine && <PhotoActions photoId={photo.id} ownerId={id} />}
+            {isMine && <PhotoActions photoId={photo.id} />}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={photo.url} alt={photo.caption ?? "photo"} className="max-h-64 w-full object-cover" loading="lazy" />
-            <PhotoCard photoId={photo.id} caption={photo.caption} isMine={!!isMine} />
+            <PhotoCard photoId={photo.id} caption={photo.caption} />
             {comments.length > 0 && (
               <div className="space-y-1 border-t bg-gray-50 p-2 text-xs">
                 {comments.map((c) => <p key={c.id}>{c.body}</p>)}

@@ -97,17 +97,6 @@ export async function reevaluateJail(userId: string): Promise<{ jailedUntil: Dat
   return { jailedUntil: until };
 }
 
-/**
- * Orkut allowed anyone to view any profile, gated only by an Ignore List. This
- * keeps that openness while giving a jailed account a courtesy explanation
- * instead of a silent page.
- */
-export async function canViewProfile(userId: string): Promise<{ jailed: boolean; until: Date | null }> {
-  const u = (await db.select({ jailedUntil: users.jailedUntil }).from(users).where(eq(users.id, userId)).limit(1))[0];
-  const jailed = !!u?.jailedUntil && u.jailedUntil > new Date();
-  return { jailed, until: jailed ? u!.jailedUntil : null };
-}
-
 export async function areFriends(a: string, b: string): Promise<boolean> {
   const found = await db.select().from(friendships).where(
     and(

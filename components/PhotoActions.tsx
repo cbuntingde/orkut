@@ -2,7 +2,12 @@
 import { useRouter } from "next/navigation";
 import { deleteAlbum, deletePhoto } from "@/lib/photo-actions";
 
-export function PhotoActions({ photoId, ownerId }: { photoId: string; ownerId: string }) {
+/**
+ * Rendered only when the viewer owns the photo — the call site owns that
+ * decision, so no ownership prop is needed here. The delete action checks the
+ * owner server-side regardless, so a stale render is harmless.
+ */
+export function PhotoActions({ photoId }: { photoId: string }) {
   const router = useRouter();
   return (
     <button

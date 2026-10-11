@@ -40,7 +40,3 @@ export const THEMES = {
 
 export type ThemeKey = keyof typeof THEMES;
 export const THEME_KEYS = Object.keys(THEMES) as ThemeKey[];
-
-export function themeFor(key: string) {
-  return THEMES[key as ThemeKey] ?? THEMES.orkut;
-}

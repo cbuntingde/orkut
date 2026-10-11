@@ -2,19 +2,28 @@
 
 > **Two things to know before you run this.**
 >
-> **1. There is no admin interface.** There is no site-admin role anywhere in the schema
-> or the code, no admin panel, no way to administratively remove a user, suspend an
-> account, or globally review content. The one moderation queue at `/moderation` is
-> gated on being signed in and nothing more, so *any* registered account can read the
-> reports and act on them. That is a simplification for a demo, not a governance model.
+> **1. Moderation is one person with a SQL statement.** There is no admin panel,
+> no invitation flow, and no way to grant the role from inside the app. The
+> moderation queue at `/moderation` — report decisions, the one-day jail, and the
+> manual unjail — is gated on a single `users.is_admin` flag, and nothing at
+> runtime ever sets it: it is granted by hand.
+>
+> ```sql
+> UPDATE users SET is_admin = TRUE WHERE email = 'you@example.com';
+> ```
+>
+> `npm run seed` marks `ana@example.com` for local use. Until you run that
+> statement on a fresh deployment, nobody can reach the queue — which is the
+> correct way round, but it does mean a deployer has to know this exists.
 >
 > **2. This has not been properly security-checked.** The authentication code was written
 > with real measures in mind, and several are implemented and exercised: Argon2id, TOTP
 > two-factor, per-device sessions, CSRF protection, closed signup enumeration, and
-> uploads stored outside `public/`. But no independent party has reviewed any of it,
-> there has been no penetration test, and no formal audit has ever been carried out.
-> Treat the whole thing as unvetted. The four hosted mail transports (Resend, Postmark,
-> SES, SMTP) have likewise never been tested against a live provider API.
+> uploads stored outside `public/`. It has since been reviewed, and the review's findings
+> were fixed — but no independent party has looked at any of it, there has been no
+> penetration test, and no formal audit has ever been carried out. Treat the whole thing
+> as unvetted. The four hosted mail transports (Resend, Postmark, SES, SMTP) have
+> likewise never been tested against a live provider API.
 >
 > **So run it locally.** Do not expose this to the public internet, and do not lift the
 > authentication or session code into anything real without an independent security
@@ -226,22 +235,44 @@ Requires Node 24+ and Docker.
 git clone <this repo>
 cd orkut
 cp .env.example .env          # then set AUTH_SECRET to something long and random
-docker compose up -d          # Postgres on :5432
-
-# Apply the migrations. The order matters: migrate-p3.sql alters the photos
-# table, which migrate-option-a.sql creates, and migrate.sql has to be first
-# because everything else references users. This exact sequence was verified by
-# building a scratch database from empty and diffing the result against a live
-# one: 177 columns, identical.
-for f in migrate.sql migrate-polls.sql migrate-option-a.sql migrate-final.sql \
-         migrate-safety.sql migrate-rate-limits.sql migrate-orkut-fidelity.sql \
-         migrate-p3.sql migrate-email-verification.sql migrate-p44.sql; do
-  docker exec -i orkut-db-1 psql -U orkut -d orkut -v ON_ERROR_STOP=1 < "$f"
-done
-
 npm install
 npm run dev                   # http://localhost:3000
 ```
+
+With `DATABASE_URL` unset, `lib/db.ts` defaults to
+`postgres://orkut:orkut@localhost:5432/orkut`, so a stock Postgres on :5432 is all
+the app needs.
+
+### The database
+
+There is no migration step. The entire schema is one file, `schema.sql`, and
+docker-compose mounts it into Postgres's init directory so it is applied on first
+start:
+
+```bash
+docker compose up -d          # Postgres on :5432, schema applied automatically
+```
+
+29 tables, 178 columns. `schema.sql` replaced eleven earlier numbered migrations
+that had to be applied in a hand-documented order, which was a genuine hazard:
+nothing enforced the order, so skipping or reordering one produced a confusing
+error instead of a clear one. Squashing was verified by building both the old
+sequence and the new file against empty databases and diffing `pg_dump
+--schema-only` — identical on tables, columns, defaults, indexes, foreign keys,
+check constraints, and enums.
+
+Postgres runs `/docker-entrypoint-initdb.d` only when the data volume is empty.
+If you already have one from an earlier checkout, rebuild it once:
+
+```bash
+docker compose down -v         # deletes the volume
+docker compose up -d
+```
+
+Once a database is actually deployed somewhere, future changes go into new
+numbered migrations applied in order, and `schema.sql` stays frozen at the
+released schema. That is the point at which a single baseline stops being
+sufficient.
 
 Then seed the demo data:
 
@@ -254,12 +285,12 @@ does not duplicate anything.
 
 ### Demo accounts
 
-| Email | Password |
-|---|---|
-| `ana@example.com` | `orkut123` |
-| `rahul@example.com` | `orkut123` |
-| `priya@example.com` | `orkut123` |
-| `carlos@example.com` | `orkut123` |
+| Email | Password | Notes |
+|---|---|---|
+| `ana@example.com` | `orkut123` | also the demo administrator, so `/moderation` is reachable |
+| `rahul@example.com` | `orkut123` | moderator of the seeded community |
+| `priya@example.com` | `orkut123` | |
+| `carlos@example.com` | `orkut123` | |
 
 Signing up requires email verification. The default `console` mail provider prints the
 verification link to the server log rather than sending it, which is why the signup
@@ -278,6 +309,8 @@ refuses to run in production.
 | `MAIL_PROVIDER` | no | `console` (default), `resend`, `postmark`, `ses`, `smtp` |
 | `TOTP_ENCRYPTION_KEY` | no | 32 bytes as hex or base64. **Set this in production.** |
 | `REQUIRE_EMAIL_VERIFICATION` | no | Defaults to on |
+| `MAIL_FROM` | yes in practice | Sender address for the hosted transports. Each one falls back to a placeholder that a real provider will reject |
+| `TRUSTED_PROXY_HOPS` | no | Defaults to 1. How many X-Forwarded-For entries at the right-hand end are your own |
 | `UPLOAD_DIR` | no | Where uploaded photos are written. Defaults to `./data/uploads` |
 
 If `TOTP_ENCRYPTION_KEY` is unset, the AES-256-GCM key for TOTP secrets is derived from
@@ -310,11 +343,13 @@ npm run lint         # eslint
 npm run verify       # TOTP + password hashing test suites
 ```
 
-`npm run verify` runs 93 checks with no test framework. The TOTP suite validates against
+`npm run verify` runs 125 checks with no test framework. The TOTP suite validates against
 all 10 RFC 4226 HOTP vectors and all 18 RFC 6238 TOTP vectors across SHA1, SHA256, and
 SHA512, plus encryption, tamper detection, and key resolution. The password suite covers
 format, verification, fail-closed behaviour on malformed stored values, and the rehash
-policy.
+policy. The client-ip suite covers which end of `X-Forwarded-For` is trusted and what
+happens when the address does not look like an address. The mail suite covers provider
+inference and the production guard that refuses the console transport.
 
 ---
 
@@ -331,9 +366,10 @@ lib/                 domain logic, all testable without Next.js
   password-hasher.ts Argon2id with PBKDF2 fallback
   scrap-format.ts    the BBCode parser, returns React nodes
   csrf.ts            origin and double-submit checks
+  client-ip.ts       which proxy-supplied address the rate limiter trusts
   session.ts         per-device session management
 scripts/             verification suites
-migrate-*.sql        schema, applied in filename order
+schema.sql           the complete database, applied automatically on first start
 docs/screenshots/    the images in this README
 ```
 
@@ -346,23 +382,44 @@ under plain Node without a framework.
 
 Beyond the obvious:
 
-- **Signup enumeration is closed.** Every signup gets an identical response, and the
-  timing gap between registered and unregistered addresses was measured and balanced to
-  within noise.
+- **Signup enumeration is closed.** Every signup gets an identical response, and
+  the registered branch spends the same Argon2 cost as the hashing one. Crucially,
+  no branch waits on the mail transport: the response is sent and the mail is
+  dispatched behind it. Awaiting it put a real network round trip on only the
+  branches that had something to send, which left an oracle behind an otherwise
+  identical payload.
 - **Login is throttled per IP and per account**, before any validation, so short or
   malformed guesses cannot bypass the budget.
+- **The IP in that throttle is the one your proxy wrote.** The limiter reads the
+  rightmost `X-Forwarded-For` entry, not the leftmost, and only accepts something
+  shaped like an address. Taking the leftmost — which is what the usual snippet
+  does — lets anyone reaching the origin mint a fresh identity per request and
+  walk past every limit in the file.
 - **Argon2id** with a transparent upgrade: old PBKDF2 hashes still verify and are
   rewritten on the user's next successful login, so nobody is locked out.
 - **TOTP secrets are encrypted at rest** with AES-256-GCM. They have to be recoverable,
   which rules out hashing them, so a database dump alone is not enough to impersonate
-  an account.
+  an account. They are also kept out of the Takeout export.
 - **Replay protection** on two-factor codes, so a captured code dies at 30 seconds
   instead of 90.
 - **Recovery codes**, because without them a lost phone is a dead account.
 - **CSRF** on the hand-written API routes, via origin checking plus a double-submit
   token.
-- **Uploads are stored outside `public/`** and served by a route that rejects traversal
-  and non-image MIME types.
+- **Uploads are stored outside `public/`**, served by a route that rejects traversal
+  and non-image extensions, named with a CSPRNG suffix, and identified by their
+  leading bytes rather than by the browser-supplied `Content-Type`. That last one
+  matters: the client chooses `file.type`, so deriving the stored extension from it
+  meant a request claiming `image/png` could write arbitrary bytes to a `.png`.
+- **Profile edits write an explicit allowlist of columns.** A Next.js server action is
+  a public HTTP endpoint and its parameter type is erased at runtime, so spreading
+  the request body into `.set()` gave the account owner every column on their own
+  row — `emailVerifiedAt`, `jailedUntil`, `passwordHash`, `totpSecret` among them.
+- **Moderation requires `is_admin`.** The queue, the report decisions, and the manual
+  jail override are all behind `requireAdmin()`. The community `owner` and
+  `moderator` roles are scoped to one community and deliberately do not count.
+- **Response headers**: a content security policy with `object-src 'none'` and a
+  two-host `frame-src` allowlist, plus `nosniff`, `X-Frame-Options`,
+  `Referrer-Policy` and `Permissions-Policy`.
 
 ---
 
@@ -370,6 +427,9 @@ Beyond the obvious:
 
 Stated plainly rather than left to be discovered:
 
+- **No admin interface.** `is_admin` is a column with a documented `UPDATE`, not a
+  product surface. There is no invitation, no role management, and no way to see
+  who holds it.
 - **No OpenSocial app container.** The apps were a big part of the original homepage,
   but the ecosystem no longer exists to integrate against.
 - **No QR code** for two-factor setup. The `otpauth://` URI is shown as selectable text,
@@ -377,6 +437,18 @@ Stated plainly rather than left to be discovered:
 - **The four hosted mail transports are untested against live APIs.** Provider selection,
   dispatch, and failure handling are proven; actually delivering mail needs real
   credentials for each.
+- **The CSP allows `unsafe-inline` for scripts.** The App Router inlines its own
+  bootstrap, and a per-request nonce means routing every rendered page through one.
+  It still blocks remote script and `object`/`embed`; it is not the policy you would
+  ship for an untrusted-content product.
+- **IP rate limiting assumes a proxy is in front.** With nothing between the client
+  and the origin there is no address to read that the client did not choose, so every
+  caller collapses to one bucket. Behind a proxy the rightmost entry is trustworthy;
+  set `TRUSTED_PROXY_HOPS` to match your topology.
+- **Backgrounded mail needs a long-running process.** Signup and resend respond
+  before the transport finishes, which is what keeps their timing flat. That holds for
+  `output: "standalone"` (`node server.js`) and would need a queue on a platform that
+  freezes the instance when the response returns.
 - **`/api/seed` writes on GET.** It refuses to run in production, which is the real
   mitigation, but a state-changing GET is the wrong shape.
 - **Visitors can repeat.** The last-5-visitors list is keyed on the visit, so visiting

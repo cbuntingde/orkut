@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import Header from "@/components/Header";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { requireRole, removeMember, setMemberRole, updateCommunitySettings } from "@/lib/community-actions";
+import { requireRole, removeMember, setMemberRole } from "@/lib/community-actions";
 import { avatarFor } from "@/lib/orkut";
 import CommunityAdminForms from "@/components/CommunityAdminForms";
 import { communities, communityMembers, users } from "@/drizzle/schema";

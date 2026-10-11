@@ -3,7 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { commentOnPhoto } from "@/lib/photo-actions";
 
-export function PhotoCard({ photoId, caption, isMine }: { photoId: string; caption: string | null; isMine: boolean }) {
+// Anyone signed in may comment, so there is no ownership distinction to make
+// here. The photo id is all the form needs.
+export function PhotoCard({ photoId, caption }: { photoId: string; caption: string | null }) {
   const router = useRouter();
   const [body, setBody] = useState("");
   const [err, setErr] = useState("");

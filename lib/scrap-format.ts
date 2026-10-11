@@ -143,18 +143,3 @@ export function parseScrap(src: string): ScrapNode[] {
   pushText(top().children, src.slice(last));
   return root;
 }
-
-function collectText(nodes: ScrapNode[], out: string[]) {
-  for (const n of nodes) {
-    if (n.kind === "text") out.push(n.value);
-    else if (n.kind === "smiley") out.push(` ${n.alt} `);
-    else collectText(n.children, out);
-  }
-}
-
-/** Plain-text version, used for accessibility text and search. */
-export function stripScrap(src: string): string {
-  const out: string[] = [];
-  collectText(parseScrap(src), out);
-  return out.join("").replace(/\s+/g, " ").trim();
-}

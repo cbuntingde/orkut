@@ -43,6 +43,8 @@ GEMINI.md
 PLAN.md
 TODO.md
 NOTES.md
+# per-project agent memory written by tooling
+.agents/
 
 # Markdown under docs/ is development notes. The screenshots alongside them are
 # product assets referenced by README.md, so they stay tracked.
