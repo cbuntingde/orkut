@@ -1,9 +1,9 @@
 import Header from "@/components/Header";
-import { requireUser } from "@/lib/auth";
-import { getOpenReports, moderateReport } from "@/lib/safety-actions";
+import { requireAdmin } from "@/lib/auth";
+import { getOpenReports, moderateReport, setJail } from "@/lib/safety-actions";
 
 export default async function ModerationPage() {
-  await requireUser();
+  await requireAdmin();
   const open = await getOpenReports();
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -19,9 +19,24 @@ export default async function ModerationPage() {
                   <p className="text-xs italic">{r.reason}</p>
                   <p className="text-[11px] text-gray-400">{new Date(r.createdAt).toLocaleString()}</p>
                 </div>
-                <div className="flex gap-2 text-xs">
+                <div className="flex flex-wrap justify-end gap-2 text-xs">
                   <form action={moderateReport.bind(null, r.id, "actioned")}><button className="font-bold text-green-700">action</button></form>
                   <form action={moderateReport.bind(null, r.id, "dismissed")}><button className="font-bold text-gray-500">dismiss</button></form>
+                  {/* Only a profile report carries a user id, which is the only
+                      thing a jail can be applied to. Days of 1 matches the
+                      bottom rung of the ladder in lib/jail.ts, so this is an
+                      override for a single report rather than a shortcut past
+                      the thresholds. */}
+                  {r.targetType === "profile" && (
+                    <>
+                      <form action={setJail.bind(null, r.targetId, 1)}>
+                        <button className="font-bold text-orange-700">jail 1 day</button>
+                      </form>
+                      <form action={setJail.bind(null, r.targetId, 0)}>
+                        <button className="font-bold text-gray-500">unjail</button>
+                      </form>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

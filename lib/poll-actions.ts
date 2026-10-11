@@ -2,18 +2,11 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
-import { communityMembers, pollOptions, pollVotes, polls } from "@/drizzle/schema";
-
-async function mustBeMember(communityId: string, userId: string) {
-  const rows = await db.select().from(communityMembers)
-    .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId))).limit(1);
-  if (!rows.length) throw new Error("Join the community to vote");
-}
+import { requireMembership } from "@/lib/community-actions";
+import { pollOptions, pollVotes, polls } from "@/drizzle/schema";
 
 export async function createPoll(communityId: string, question: string, options: string[]) {
-  const me = await requireUser();
-  await mustBeMember(communityId, me.id);
+  const me = await requireMembership(communityId);
   const q = question.trim().slice(0, 280);
   const labels = options.map((o) => o.trim().slice(0, 140)).filter(Boolean).slice(0, 6);
   if (q.length < 5) throw new Error("Question too short");
@@ -26,8 +19,7 @@ export async function createPoll(communityId: string, question: string, options:
 }
 
 export async function voteOnPoll(communityId: string, pollId: string, optionId: string) {
-  const me = await requireUser();
-  await mustBeMember(communityId, me.id);
+  const me = await requireMembership(communityId);
   const opt = (await db.select().from(pollOptions).where(eq(pollOptions.id, optionId)).limit(1))[0];
   if (!opt || opt.pollId !== pollId) throw new Error("Invalid option");
   const existing = await db.select().from(pollVotes)

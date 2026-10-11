@@ -40,6 +40,17 @@ export function resolveProviderName(): ProviderName {
         `Unknown MAIL_PROVIDER "${explicit}". Use one of: ${PROVIDER_NAMES.join(", ")}.`
       );
     }
+    // Naming the console transport explicitly must not be a way around the
+    // production guard below. It used to be: the check only ran on the inferred
+    // path, so MAIL_PROVIDER=console quietly logged every verification link to
+    // the server log and delivered nothing, with no error to show for it.
+    if (explicit === "console" && process.env.NODE_ENV === "production") {
+      throw new Error(
+        "MAIL_PROVIDER=console is a development-only transport and is refused in " +
+          "production, so verification mail cannot be silently discarded. Set " +
+          "MAIL_PROVIDER to resend, postmark, ses or smtp with its credentials."
+      );
+    }
     return explicit as ProviderName;
   }
 

@@ -47,28 +47,11 @@ export async function hit(key: string, limit: number, windowSeconds: number): Pr
   return { ok: count <= limit, count, retryAfterSec };
 }
 
-export async function pruneRateLimits(): Promise<number> {
-  const deleted = await db.delete(rateLimits).where(sql`${rateLimits.windowStart} < NOW() - INTERVAL '1 day`).returning({ key: rateLimits.key });
-  return deleted.length;
-}
-
-// Read without consuming budget. Used to clear a counter after a success.
-export async function peek(key: string): Promise<RateResult> {
-  const rows = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
-  if (!rows.length) return { ok: true, count: 0, retryAfterSec: 0 };
-  const elapsed = Date.now() - new Date(rows[0].windowStart).getTime();
-  const retryAfterSec = Math.max(0, Math.ceil((3600 * 1000 - elapsed) / 1000));
-  return { ok: true, count: rows[0].count, retryAfterSec };
-}
-
 export async function clear(key: string): Promise<void> {
   await db.delete(rateLimits).where(eq(rateLimits.key, key));
 }
 
-// Best-effort IP for the throttle key. Behind a proxy the first entry is the
-// client; locally it falls back to a constant so the limit still applies.
-export function clientIp(headers: Headers): string {
-  const fwd = headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim().slice(0, 64);
-  return headers.get("x-real-ip")?.slice(0, 64) ?? "local";
-}
+// The address logic lives in its own module so it can be exercised without a
+// database. Re-exported here because this is where every caller already imports
+// it from. Verified by scripts/verify-client-ip.ts.
+export { clientIp } from "@/lib/client-ip";

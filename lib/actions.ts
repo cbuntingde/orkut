@@ -8,18 +8,72 @@ import { isBlocked } from "@/lib/safety-actions";
 import { assertNoSpam } from "@/lib/filter";
 import { notify, assertNotJailed, areFriends } from "@/lib/notify";
 
+/**
+ * The only profile columns a client may write.
+ *
+ * This list is the security control, not documentation. A Next.js server action
+ * is a public HTTP endpoint: the parameter type below is erased at runtime, so
+ * the object actually received is whatever the caller sent. Spreading that
+ * object into `.set()` handed every `users` column to the account owner, because
+ * Drizzle builds the SET clause from the real table columns and applies any of
+ * them present in the object — see `buildUpdateSet` in
+ * `node_modules/drizzle-orm/pg-core/dialect.cjs`. That made `emailVerifiedAt`,
+ * `jailedUntil`, `passwordHash` and `totpSecret` all settable on one's own row.
+ *
+ * The WHERE clause scopes the row. It never scopes the columns.
+ */
+const EDITABLE_PROFILE_FIELDS = [
+  "status", "relationship", "city", "country",
+  "about", "interests", "music", "movies", "books", "avatarUrl",
+] as const;
+
 export async function updateProfile(form: {
   status?: string; relationship?: string; city?: string; country?: string;
   about?: string; interests?: string; music?: string; movies?: string; books?: string; avatarUrl?: string; dob?: string;
 }) {
   const me = await requireUser();
-  const { dob, ...rest } = form;
   assertNoSpam(
-    [rest.status, rest.about, rest.interests, rest.music, rest.movies, rest.books]
+    [form.status, form.about, form.interests, form.music, form.movies, form.books]
       .filter(Boolean).join(" "),
     "Profile"
   );
-  await db.update(users).set({ ...rest, dob: dob ? new Date(dob) : null }).where(eq(users.id, me.id));
+
+  // Copied field by field, and only when the value really is a string. Anything
+  // absent, null, or of another type is simply not written, so clearing a field
+  // still sends "" and clears it, while a non-string injection is dropped.
+  //
+  // Typed as a Pick of the insert shape rather than a hand-written record, so
+  // each field keeps the type its column actually expects instead of collapsing
+  // every one of them to `string`.
+  type EditableProfilePatch = Partial<
+    Pick<typeof users.$inferInsert, (typeof EDITABLE_PROFILE_FIELDS)[number]> & { dob: Date | null }
+  >;
+  const patch: EditableProfilePatch = {};
+  for (const field of EDITABLE_PROFILE_FIELDS) {
+    const value = form[field];
+    if (typeof value === "string") patch[field] = value;
+  }
+
+  // The birthday is editable too, but it is a date rather than a string, so it
+  // gets its own explicitly named case instead of riding the loop above. A blank
+  // or unparseable value clears it; a malformed one would otherwise reach
+  // Postgres as an Invalid Date.
+  if (typeof form.dob === "string") {
+    const trimmed = form.dob.trim();
+    if (trimmed === "") {
+      patch.dob = null;
+    } else {
+      const parsed = new Date(trimmed);
+      patch.dob = Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
+
+  // Drizzle throws "No values to set" on an empty SET clause, so a caller that
+  // sent nothing usable has to be a no-op rather than a 500. The previous
+  // version could not hit this because it always wrote `dob`.
+  if (Object.keys(patch).length === 0) return;
+
+  await db.update(users).set(patch).where(eq(users.id, me.id));
   revalidatePath(`/profile/${me.id}`);
   revalidatePath("/home");
 }
@@ -80,8 +134,17 @@ export async function toggleFan(starId: string) {
   revalidatePath("/fans");
 }
 
-export async function rateUser(ratedId: string, field: "cool" | "sexy" | "trustworthy", value: number) {
+const RATING_FIELDS = ["cool", "sexy", "trustworthy"] as const;
+
+export async function rateUser(ratedId: string, field: string, value: number) {
   const me = await requireUser();
+  // The column is chosen at runtime, so it is checked rather than trusted. The
+  // declared parameter type is erased on the wire, and a computed key that is
+  // not a real column is exactly what the allowlist in updateProfile exists to
+  // stop elsewhere.
+  if (!(RATING_FIELDS as readonly string[]).includes(field)) {
+    throw new Error("Unknown rating field");
+  }
   const v = Math.max(0, Math.min(3, Math.round(value)));
   await db.insert(ratings).values({ raterId: me.id, ratedId, [field]: v } as typeof ratings.$inferInsert)
     .onConflictDoUpdate({ target: [ratings.raterId, ratings.ratedId], set: { [field]: v } });

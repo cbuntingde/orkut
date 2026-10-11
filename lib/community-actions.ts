@@ -27,9 +27,29 @@ export async function createCommunity(form: { name: string; description?: string
   return inserted[0].id;
 }
 
-// Resolves the caller's role in a community. `null` means not a member, which is
-// what every moderator-only action checks first. Centralised so a new privileged
-// action cannot forget the check.
+/**
+ * Gate for anything that writes inside a community.
+ *
+ * `requireRole` covers the moderator-only actions; this covers the ones a plain
+ * member may take. Both are needed: creating an event checked membership while
+ * opening a topic and replying to one did not, so anyone signed in could post
+ * into a community whose join policy was `closed`.
+ */
+export async function requireMembership(communityId: string) {
+  const me = await requireUser();
+  const rows = await db.select({ userId: communityMembers.userId })
+    .from(communityMembers)
+    .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, me.id)))
+    .limit(1);
+  if (!rows.length) throw new Error("Join the community first");
+  return me;
+}
+
+/**
+ * Resolves the caller's role in a community. `null` means not a member, which is
+ * what every moderator-only action checks first. Centralised so a new privileged
+ * action cannot forget the check.
+ */
 export async function requireRole(communityId: string) {
   const me = await requireUser();
   const rows = await db.select({ role: communityMembers.role })
@@ -66,7 +86,7 @@ export async function toggleCommunityMembership(communityId: string) {
 }
 
 export async function createTopic(communityId: string, title: string, body: string) {
-  const me = await requireUser();
+  const me = await requireMembership(communityId);
   const t = title.trim().slice(0, 200);
   if (t.length < 3 || body.trim().length < 1) throw new Error("Topic needs title + message");
   assertNoSpam(t + " " + body, "Topic");
@@ -76,7 +96,7 @@ export async function createTopic(communityId: string, title: string, body: stri
 }
 
 export async function replyToTopic(communityId: string, topicId: string, body: string) {
-  const me = await requireUser();
+  const me = await requireMembership(communityId);
   if (!body.trim()) throw new Error("Empty reply");
   assertNoSpam(body, "Reply");
   await db.insert(posts).values({ topicId, authorId: me.id, body: body.trim() });

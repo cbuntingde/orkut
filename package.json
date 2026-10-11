@@ -9,7 +9,9 @@
         "lint": "eslint",
         "verify:totp": "node --experimental-strip-types --no-warnings ./scripts/verify-totp.ts",
         "verify:password": "node --experimental-strip-types --no-warnings ./scripts/verify-password.ts",
-        "verify": "npm run verify:totp && npm run verify:password"
+        "verify:client-ip": "node --experimental-strip-types --no-warnings ./scripts/verify-client-ip.ts",
+        "verify:mail": "node --experimental-strip-types --no-warnings ./scripts/verify-mail-provider.ts",
+        "verify": "npm run verify:totp && npm run verify:password && npm run verify:client-ip && npm run verify:mail"
     },
     "dependencies": {
         "@node-rs/argon2": "^2.2.2",

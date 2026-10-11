@@ -24,7 +24,10 @@ export default async function Header() {
             <Link className="orkut-link" href="/notifications">
               Alerts{unread > 0 ? ` (${unread})` : ""}
             </Link>
-            <Link className="orkut-link" href="/moderation">Safety</Link>
+            {/* Site moderation, which is an administrator-only queue. The link is
+                hidden for everyone else, but the route and the actions behind it
+                are gated too — this is presentation, not the control. */}
+            {user.isAdmin && <Link className="orkut-link" href="/moderation">Safety</Link>}
             <form action={async () => { "use server"; await destroySession(); }} className="ml-auto">
               <Link className="orkut-link mr-2 text-xs" href="/settings">settings</Link>
               <span className="mr-2 text-xs" style={{ color: "var(--orkut-ink)" }}>{user.name}</span>

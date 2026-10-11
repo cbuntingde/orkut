@@ -1,8 +1,13 @@
 # ---- deps ----
+# The lockfile is copied alongside package.json and `npm ci` is used, so the
+# image installs exactly the versions that were tested. Copying only the manifest
+# and running `npm install` resolved fresh versions at build time, which for a
+# project handling passwords means the container could ship a dependency
+# resolution nobody ever ran the test suites against.
 FROM node:24-alpine AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 # ---- builder ----
 FROM node:24-alpine AS builder

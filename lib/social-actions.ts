@@ -3,22 +3,22 @@ import { revalidatePath } from "next/cache";
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { communityMembers, directMessages, eventRsvps, events } from "@/drizzle/schema";
+import { requireMembership } from "@/lib/community-actions";
+import { directMessages, eventRsvps, events } from "@/drizzle/schema";
 import { assertNoSpam } from "@/lib/filter";
 import { isBlocked } from "@/lib/safety-actions";
 
 export async function createEvent(communityId: string, form: { title: string; description?: string; location?: string; startsAt: string }) {
-  const me = await requireUser();
-  const member = await db.select().from(communityMembers)
-    .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, me.id))).limit(1);
-  if (!member.length) throw new Error("Join the community to create events");
+  const me = await requireMembership(communityId);
   const title = form.title.trim().slice(0, 200);
   if (title.length < 3) throw new Error("Title too short");
   assertNoSpam(title + " " + (form.description ?? ""), "Event");
   const startsAt = new Date(form.startsAt);
   if (isNaN(+startsAt) || startsAt < new Date()) throw new Error("Pick a future date");
   await db.insert(events).values({
-    communityId, authorId: me.id, title,
+    communityId,
+    authorId: me.id,
+    title,
     description: form.description?.trim() || null,
     location: form.location?.trim().slice(0, 200) || null,
     startsAt,
@@ -27,7 +27,14 @@ export async function createEvent(communityId: string, form: { title: string; de
 }
 
 export async function toggleRsvp(communityId: string, eventId: string) {
-  const me = await requireUser();
+  const me = await requireMembership(communityId);
+  // The event id is chosen by the caller, so it has to belong to this community
+  // rather than to whichever one it happens to name. Without this the
+  // communityId argument was only ever used to revalidate a page.
+  const owned = await db.select({ id: events.id }).from(events)
+    .where(and(eq(events.id, eventId), eq(events.communityId, communityId))).limit(1);
+  if (!owned.length) throw new Error("Event not found");
+
   const existing = await db.select().from(eventRsvps)
     .where(and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.userId, me.id))).limit(1);
   if (existing.length) {

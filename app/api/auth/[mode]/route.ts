@@ -41,6 +41,35 @@ function seconds(n: number) {
 const SIGNUP_ANSWER =
   "If that address can be used, we have sent a verification link to it. Check your inbox.";
 
+/**
+ * Hands a message to the transport without waiting for it.
+ *
+ * Signup and resend must answer in the same time whether or not an address is
+ * registered. Awaiting the provider put a real network round trip on only some
+ * of the branches — hundreds of milliseconds against a hosted API — which left
+ * an enumeration oracle behind an otherwise identical response. Responding
+ * first and letting the mail finish behind the response removes that from the
+ * measured path entirely.
+ *
+ * This relies on the app being a long-running Node server, which is how it is
+ * built and containerised (`output: "standalone"`, `node server.js`). On a
+ * platform that freezes the instance the moment the response returns, the send
+ * would need a queue instead.
+ *
+ * Failures are logged rather than thrown: the account already exists by the time
+ * this is reached, and the emailed address is the only route back to the user,
+ * so a transport hiccup must not turn into a signup error.
+ */
+function sendInBackground(msg: { to: string; subject: string; text: string }) {
+  try {
+    void sendMail(msg).catch((err) => {
+      console.error("[auth] verification mail failed to send:", err);
+    });
+  } catch (err) {
+    console.error("[auth] verification mail could not be dispatched:", err);
+  }
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ mode: string }> }) {
   const { mode } = await params;
   const ip = clientIp(req.headers);
@@ -92,13 +121,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ mode: s
     let created = false;
     let userId = existing[0]?.id ?? null;
 
+    // True only for an address that is registered AND already confirmed. Such an
+    // address has nothing left to do here: no token to issue and no mail to send.
+    const alreadyVerified = !!existing[0]?.emailVerifiedAt;
+
     if (existing.length) {
-      // An unverified account that re-signs-up gets a new link, which is the
-      // only legitimate reason to revisit this path.
-      if (existing[0].emailVerifiedAt) {
-        await equalizeTiming();
-        return NextResponse.json({ ok: true, message: SIGNUP_ANSWER });
-      }
       // Spend the same password hashing here as the new-account branch does.
       // Without it this branch skips hashing entirely and answers measurably
       // faster, which is itself enough to tell registered from unregistered.
@@ -113,33 +140,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ mode: s
       created = true;
     }
 
-    const token = await issueVerificationToken(userId!);
-    const link = verificationUrl(token);
-    const sent = await sendMail({
-      to: email,
-      subject: "Confirm your orkut address",
-      text: [
-        `Welcome to orkut, ${name}.`,
-        "",
-        "Confirm this address to finish setting up your profile:",
-        link,
-        "",
-        `The link works once and expires in 24 hours.`,
-        created ? "" : "If you did not ask for this, ignore this message and nothing will happen.",
-      ].join("\n"),
-    });
+    // No branch waits on the mail transport, so the work that remains on the
+    // measured path is only CPU (balanced above) plus one or two row writes.
+    // That is what keeps the three cases indistinguishable by response time.
+    const payload: Record<string, unknown> = { ok: true, message: SIGNUP_ANSWER };
 
-    if (verificationRequired()) {
-      // No session yet: the account is real but unverified.
-      const payload: Record<string, unknown> = { ok: true, message: SIGNUP_ANSWER };
-      // Local development convenience only, so the console transport is usable.
-      if (canSurfaceVerificationLink() && sent.ok) payload.devVerificationLink = link;
-      return NextResponse.json(payload);
+    if (!alreadyVerified) {
+      const token = await issueVerificationToken(userId!);
+      const link = verificationUrl(token);
+      const message = {
+        to: email,
+        subject: "Confirm your orkut address",
+        text: [
+          `Welcome to orkut, ${name}.`,
+          "",
+          "Confirm this address to finish setting up your profile:",
+          link,
+          "",
+          `The link works once and expires in 24 hours.`,
+          created ? "" : "If you did not ask for this, ignore this message and nothing will happen.",
+        ].join("\n"),
+      };
+
+      if (canSurfaceVerificationLink()) {
+        // Development only. The console transport is local and immediate, and the
+        // link has to be in the response for signup to be usable without a
+        // mailbox. Nothing in production is on this path.
+        const sent = await sendMail(message);
+        if (sent.ok) payload.devVerificationLink = link;
+      } else {
+        sendInBackground(message);
+      }
     }
 
-    await createSession(userId!);
-    const payload: Record<string, unknown> = { ok: true, message: SIGNUP_ANSWER };
-    if (canSurfaceVerificationLink() && sent.ok) payload.devVerificationLink = link;
+    if (!verificationRequired()) await createSession(userId!);
     return NextResponse.json(payload);
   }
 
@@ -207,6 +241,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ mode: s
 /**
  * Resending must never reveal whether an address exists either, so this answers
  * identically for unknown addresses, already-verified accounts, and fresh links.
+ * The dispatch is backgrounded for the same reason as signup: waiting for the
+ * transport would leave only this one branch paying for the network.
  */
 async function handleResend(email: string, ip: string) {
   if (!isEmail(email)) return NextResponse.json({ error: "Enter a valid email" }, { status: 400 });
@@ -216,17 +252,16 @@ async function handleResend(email: string, ip: string) {
     return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
   }
 
-  const answer = NextResponse.json({ ok: true, message: "If that address needs verifying, a new link is on its way." });
-
   const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
   const user = rows[0];
-  if (!user || user.emailVerifiedAt) return answer;
+  if (user && !user.emailVerifiedAt) {
+    const token = await issueVerificationToken(user.id);
+    sendInBackground({
+      to: email,
+      subject: "Your orkut verification link",
+      text: `Confirm your orkut address:\n\n${verificationUrl(token)}\n\nThis link works once and expires in 24 hours.`,
+    });
+  }
 
-  const token = await issueVerificationToken(user.id);
-  await sendMail({
-    to: email,
-    subject: "Your orkut verification link",
-    text: `Confirm your orkut address:\n\n${verificationUrl(token)}\n\nThis link works once and expires in 24 hours.`,
-  });
-  return answer;
+  return NextResponse.json({ ok: true, message: "If that address needs verifying, a new link is on its way." });
 }

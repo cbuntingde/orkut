@@ -1,4 +1,5 @@
 "use server";
+import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
@@ -10,12 +11,39 @@ import { assertNoSpam } from "@/lib/filter";
 import { uploadDir } from "@/lib/storage";
 
 const MAX_BYTES = 5 * 1024 * 1024; // Orkut's historical photo cap
-const ALLOWED = new Map([
-  ["image/jpeg", "jpg"],
-  ["image/png", "png"],
-  ["image/gif", "gif"],
-  ["image/webp", "webp"],
-]);
+
+/**
+ * Identifies an image from its leading bytes and returns the extension to store
+ * it under.
+ *
+ * The browser-supplied `file.type` is not evidence of anything: it is a string
+ * the client chose, and deriving the stored extension from it meant a request
+ * claiming `image/png` could write arbitrary bytes to a `.png`. Sniffing the
+ * actual content closes that, and it also means the extension served back by
+ * app/uploads/[name]/route.ts is guaranteed to describe the bytes.
+ */
+function sniffImageType(bytes: Uint8Array): "jpg" | "png" | "gif" | "webp" | null {
+  const at = (i: number) => bytes[i];
+  if (bytes.length >= 3 && at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "jpg";
+  if (
+    bytes.length >= 8 &&
+    at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47 &&
+    at(4) === 0x0d && at(5) === 0x0a && at(6) === 0x1a && at(7) === 0x0a
+  ) return "png";
+  // GIF87a and GIF89a
+  if (
+    bytes.length >= 6 &&
+    at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x38 &&
+    (at(4) === 0x37 || at(4) === 0x39) && at(5) === 0x61
+  ) return "gif";
+  // "RIFF" .... "WEBP"
+  if (
+    bytes.length >= 12 &&
+    at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 &&
+    at(8) === 0x57 && at(9) === 0x45 && at(10) === 0x42 && at(11) === 0x50
+  ) return "webp";
+  return null;
+}
 
 export async function createAlbum(ownerId: string, title: string, description?: string) {
   const me = await requireUser();
@@ -50,13 +78,18 @@ export async function addPhoto(form: FormData) {
   let url: string;
 
   if (file instanceof File && file.size > 0) {
-    const ext = ALLOWED.get(file.type);
-    if (!ext) throw new Error("Only JPEG, PNG, GIF or WebP images are allowed");
     if (file.size > MAX_BYTES) throw new Error("Image must be under 5 MB");
-    const name = `${me.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const ext = sniffImageType(bytes);
+    if (!ext) throw new Error("Only JPEG, PNG, GIF or WebP images are allowed");
+    // 8 random bytes rather than Math.random: the upload route is unauthenticated
+    // by design and relies on the filename being unguessable, so the suffix is
+    // the whole access control. The owner id and timestamp are already known to
+    // anyone who can see a profile.
+    const name = `${me.id}-${Date.now()}-${randomBytes(8).toString("hex")}.${ext}`;
     const dir = uploadDir();
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, name), Buffer.from(await file.arrayBuffer()));
+    await writeFile(path.join(dir, name), bytes);
     url = `/uploads/${name}`;
   } else {
     // Keep the old URL-based path working; it is how the seeded photos arrive.

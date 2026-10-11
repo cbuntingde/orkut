@@ -116,11 +116,14 @@ export function verifyTotp(
   token: string,
   opts: TotpOptions & { window?: number; now?: number } = {}
 ): { ok: boolean; counter: number } {
-  const { window = 1, now = Math.floor(Date.now() / 1000) } = opts;
+  const { digits = DEFAULTS.digits, window = 1, now = Math.floor(Date.now() / 1000) } = opts;
   const code = String(token ?? "").trim();
-  // Exactly the digits a code has. Rejecting anything else up front keeps
-  // non-numeric input from being run through the HMAC at all.
-  if (!/^\d{6,8}$/.test(code)) return { ok: false, counter: -1 };
+  // Exactly the digits a code of this length has, and no more. Rejecting anything
+  // else up front keeps non-numeric input from being run through the HMAC at
+  // all. The count is derived from the same option that produced the code, so a
+  // deployment configured for 8 digits still verifies 8 and does not silently
+  // accept the 6-to-8 range it never issues.
+  if (!new RegExp(`^\\d{${digits}}$`).test(code)) return { ok: false, counter: -1 };
 
   const current = counterFor(now, opts);
   let matched = -1;

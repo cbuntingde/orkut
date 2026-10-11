@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { desc, eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { communities, communityMembers, crushes, fans, friendships, photos, polls, scraps, testimonials, users } from "@/drizzle/schema";
+import { communityMembers, crushes, fans, friendships, photos, scraps, testimonials, users } from "@/drizzle/schema";
 
 // Orkut Takeout homage: download everything Google let users export in July 2014.
 export async function GET() {
@@ -18,7 +18,16 @@ export async function GET() {
     db.select().from(photos).where(eq(photos.ownerId, me.id)).limit(12),
     db.select().from(communityMembers).where(eq(communityMembers.userId, me.id)),
   ]);
-  const { passwordHash: _ph, ...profile } = full;
+  // Nothing credential-shaped leaves in an export. passwordHash is the obvious
+  // one; totpSecret is the AES-256-GCM ciphertext of the account's TOTP secret,
+  // which is still credential material and has no business being downloaded by
+  // anyone who can reach this URL with a stolen session cookie. The user can
+  // re-enrol a new secret at any time without ever needing the old one back.
+  const {
+    passwordHash: _passwordHash,
+    totpSecret: _totpSecret,
+    ...profile
+  } = full;
   return NextResponse.json({
     exportedAt: new Date().toISOString(),
     service: "orkut-clone (homage to Google Takeout, July 2014)",

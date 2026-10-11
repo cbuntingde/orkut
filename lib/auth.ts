@@ -151,6 +151,23 @@ export async function requireUser() {
   return user;
 }
 
+/**
+ * Gate for anything that acts on an account other than the caller's own.
+ *
+ * The moderation queue and the jail override need this. `isAdmin` is the only
+ * site-wide privilege in the schema; the `owner` and `moderator` roles on
+ * community_members are scoped to one community and must never stand in for it.
+ *
+ * Non-admins are redirected rather than shown a 403, so the queue and the
+ * manual jail override are simply not reachable for them — see also
+ * components/Header.tsx, which only renders the link for an administrator.
+ */
+export async function requireAdmin() {
+  const user = await requireUser();
+  if (!user.isAdmin) redirect("/home");
+  return user;
+}
+
 /** Deletes sessions that already expired. Called opportunistically, not on a schedule. */
 export async function pruneExpiredSessions(): Promise<number> {
   const gone = await db.delete(sessions).where(lt(sessions.expiresAt, new Date())).returning({ id: sessions.id });

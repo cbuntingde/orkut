@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, requireAdmin } from "@/lib/auth";
 import { blocks, reports, users } from "@/drizzle/schema";
 import { reevaluateJail } from "@/lib/notify";
 
@@ -46,13 +46,17 @@ export async function getBlockedUsers() {
   })));
 }
 
+// Admin-only actions live below the divider. `requireAdmin` is the single gate
+// for all of them; a community `owner` or `moderator` role is not a substitute,
+// because those are scoped to one community and have no authority over accounts.
+
 export async function getOpenReports() {
-  await requireUser();
+  await requireAdmin();
   return db.select().from(reports).where(eq(reports.status, "open")).orderBy(desc(reports.createdAt)).limit(50);
 }
 
 export async function moderateReport(id: string, decision: "actioned" | "dismissed") {
-  await requireUser();
+  await requireAdmin();
   const before = await db.select().from(reports).where(eq(reports.id, id)).limit(1);
   await db.update(reports).set({ status: decision }).where(eq(reports.id, id));
   // Orkut's jail: reports accumulate into a temporary restriction rather than an
@@ -67,8 +71,9 @@ export async function moderateReport(id: string, decision: "actioned" | "dismiss
 }
 
 // Manual override for the jail, for when the automatic ladder gets it wrong.
+// Admin-only: with a member-level gate this would let any user suspend anyone.
 export async function setJail(userId: string, days: number) {
-  await requireUser();
+  await requireAdmin();
   if (days > 0) {
     await db.update(users)
       .set({ jailedUntil: new Date(Date.now() + days * 86_400_000) })

@@ -29,6 +29,11 @@ export async function GET() {
   for (const d of DEMO) {
     await db.insert(users).values({ ...d, passwordHash, luckyPct: 70, about: `Hi, I'm ${d.name}!` }).onConflictDoNothing({ target: users.email });
   }
+  // Ana owns the demo community and is the account the screenshots show. She is
+  // also the demo administrator, so the moderation queue is reachable locally.
+  // The seed is refused in production, and nothing in the running app ever sets
+  // is_admin, so this cannot grant itself on a live deployment.
+  await db.update(users).set({ isAdmin: true }).where(eq(users.email, "ana@example.com"));
   const [ana, rahul, priya, carlos] = await Promise.all(DEMO.map((d) => idFor(d.email)));
   const ids = [ana, rahul, priya, carlos];
 

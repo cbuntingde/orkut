@@ -46,6 +46,12 @@ export const users = pgTable("users", {
   // captured in transit stays valid for the rest of its 30 second step, and the
   // +/-1 verification window would widen that to 90 seconds.
   totpLastCounter: integer("totp_last_counter"),
+  // Site-wide administrator. Distinct from the community-scoped owner and
+  // moderator roles in community_members: this is the only flag that grants
+  // power over accounts other than the caller's own, namely the moderation
+  // queue and the jail override. It is deliberately not self-service — there is
+  // no action anywhere that sets it, only the seed and a manual UPDATE.
+  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [index("users_name_trgm").using("gin", t.name.op("gin_trgm_ops"))]);
 
