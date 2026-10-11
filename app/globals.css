@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* Every themeable value is a variable, so a theme only has to override these.
+   The defaults must be declared BEFORE the theme blocks below: at equal
+   specificity the later rule wins, and a trailing :root would clobber them. */
+:root {
+  --orkut-blue: #d4ddf5;
+  --orkut-blue-dark: #b8c7ee;
+  --orkut-border: #e5ecf9;
+  --orkut-pink: #ed2590;
+  --orkut-link: #224499;
+  --orkut-page: #f5f6fa;
+  --orkut-surface: #ffffff;
+  --orkut-ink: #1a1a1a;
+  --orkut-muted: #6b7280;
+}
+
+body {
+  background: var(--orkut-page);
+  color: var(--orkut-ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.orkut-box {
+  background: var(--orkut-surface);
+  border: 1px solid var(--orkut-border);
+  border-radius: 6px;
+}
+
+.orkut-box-header {
+  background: var(--orkut-blue);
+  color: var(--orkut-ink);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--orkut-border);
+  border-radius: 6px 6px 0 0;
+}
+
+.orkut-link {
+  color: var(--orkut-link);
+}
+.orkut-link:hover {
+  text-decoration: underline;
+}
+
+/* Orkut let people restyle their profile. Each theme only overrides variables,
+   so every .orkut-box / .orkut-link picks it up for free. */
+[data-theme="night"] {
+  --orkut-blue: #232338;
+  --orkut-blue-dark: #34345a;
+  --orkut-border: #34345a;
+  --orkut-pink: #7c5cff;
+  --orkut-link: #b8b4ff;
+  --orkut-page: #16162a;
+  --orkut-surface: #1e1e33;
+  --orkut-ink: #e6e6f5;
+  --orkut-muted: #9a9ac0;
+}
+
+[data-theme="sunset"] {
+  --orkut-blue: #ffe3d3;
+  --orkut-blue-dark: #f6c7ae;
+  --orkut-border: #f0c9b6;
+  --orkut-pink: #e2603c;
+  --orkut-link: #a34a2c;
+  --orkut-page: #fff7f2;
+  --orkut-surface: #ffffff;
+  --orkut-ink: #3a2018;
+  --orkut-muted: #8a6155;
+}
+
+[data-theme="forest"] {
+  --orkut-blue: #dcefe1;
+  --orkut-blue-dark: #bcdfc6;
+  --orkut-border: #c2e0ca;
+  --orkut-pink: #2e7d4f;
+  --orkut-link: #25603d;
+  --orkut-page: #f4faf6;
+  --orkut-surface: #ffffff;
+  --orkut-ink: #17301f;
+  --orkut-muted: #4f7359;
+}
+
+[data-theme="mono"] {
+  --orkut-blue: #e6e6e6;
+  --orkut-blue-dark: #cccccc;
+  --orkut-border: #d8d8d8;
+  --orkut-pink: #444;
+  --orkut-link: #333;
+  --orkut-page: #fafafa;
+  --orkut-surface: #ffffff;
+  --orkut-ink: #1f1f1f;
+  --orkut-muted: #6a6a6a;
+}
